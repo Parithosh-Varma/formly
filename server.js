@@ -58,7 +58,7 @@ const MAX_TEXT_LENGTH = 2000;
 const BAD_WORDS = [
   "asshole", "bastard", "bitch", "bollocks", "bullshit",
   "clit", "cock", "cum", "cunt",
-  "dick", "douche",
+  "damn", "dick", "douche",
   "fag", "faggot", "fuck",
   "goddamn", "jerkoff", "jizz",
   "kike", "nigga", "nigger",

@@ -7,7 +7,7 @@ const formError = document.getElementById("formError");
 const BAD_WORDS = [
   "asshole", "bastard", "bitch", "bollocks", "bullshit",
   "clit", "cock", "cum", "cunt",
-  "dick", "douche",
+  "damn", "dick", "douche",
   "fag", "faggot", "fuck",
   "goddamn", "jerkoff", "jizz",
   "kike", "nigga", "nigger",
@@ -535,12 +535,7 @@ async function handleSubmit(e) {
     return;
   }
 
-  const badCount = countClientProfanity();
-  if (badCount > 0) {
-    showError(`Found ${badCount} inappropriate word${badCount > 1 ? "s" : ""}. Please remove them before submitting.`);
-    form.querySelectorAll("textarea, input[type=text], .other-input").forEach(checkProfanityField);
-    return;
-  }
+  form.querySelectorAll("textarea, input[type=text], .other-input").forEach(checkProfanityField);
 
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
