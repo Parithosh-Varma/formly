@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Formly — Survey Results</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/iconoir-icons/iconoir@main/css/iconoir.css" />
+  <link rel="stylesheet" href="style.css?v=5" />
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a class="brand" href="/"><img src="/logo.png" alt="Formly" /> Formly</a>
+      <div class="navlinks">
+        <a href="/">Survey</a>
+        <a href="/results.html" class="on">Results</a>
+        <a href="/admin.html">Admin</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="page wide">
+    <section class="form-shell">
+
+      <header class="form-header">
+        <div class="eyebrow">
+          <span class="eyebrow-dot"></span>
+          Live results
+        </div>
+        <h1 id="formTitle">Loading&hellip;</h1>
+        <div class="stat-tiles">
+          <div class="stat-tile"><span class="stat-num" id="statTotal">–</span><span class="stat-label">responses</span></div>
+          <div class="stat-tile"><span class="stat-num" id="statLast">–</span><span class="stat-label">last submission</span></div>
+        </div>
+      </header>
+
+      <div id="charts" class="charts"></div>
+
+      <footer class="results-footer">
+        <button id="clearBtn" class="danger-btn hidden" type="button"><i class="iconoir-trash"></i>Clear all responses</button>
+        <a class="back-btn" href="/">← Back to survey</a>
+      </footer>
+
+    </section>
+  </main>
+  <script src="results.js?v=3"></script>
+</body>
+</html>

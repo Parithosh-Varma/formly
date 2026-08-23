@@ -1,0 +1,539 @@
+require("dotenv").config();
+const express = require("express");
+const path = require("path");
+const { createClient } = require("@supabase/supabase-js");
+const WebSocket = require("ws");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+  console.error("Missing SUPABASE_URL / SUPABASE_KEY in .env");
+  process.exit(1);
+}
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
+  realtime: { transport: WebSocket },
+});
+
+const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+      realtime: { transport: WebSocket },
+      auth: { persistSession: false },
+    })
+  : null;
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+if (process.env.TRUST_PROXY === "1") app.set("trust proxy", true);
+
+const ALLOWED_IPS = new Set(
+  (process.env.ALLOWED_IPS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+function clientIp(req) {
+  let ip = req.ip || req.socket.remoteAddress || "";
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  return ip;
+}
+
+function requireAllowedIp(req, res, next) {
+  const ip = clientIp(req);
+  const loopback = ip === "::1" || ip === "127.0.0.1";
+  if (!loopback && !ALLOWED_IPS.has(ip)) {
+    console.warn(`Blocked request from non-allowlisted IP: ${ip}`);
+    return res.status(403).json({ success: false, message: "Access restricted." });
+  }
+  next();
+}
+
+const QUESTION_TYPES = ["dropdown", "radio", "checkbox", "text"];
+const MAX_TEXT_LENGTH = 2000;
+
+/* ---------- profanity guard ---------- */
+
+const BAD_WORDS = [
+  "asshole", "bastard", "bitch", "bollocks", "bullshit",
+  "clit", "cock", "cum", "cunt",
+  "dick", "douche",
+  "fag", "faggot", "fuck",
+  "goddamn", "jerkoff", "jizz",
+  "kike", "nigga", "nigger",
+  "prick", "pussy",
+  "shit", "slut", "twat", "wank", "whore",
+];
+
+const BAD_WORD_PATTERNS = BAD_WORDS.map((word) => ({
+  word,
+  regex: new RegExp(`\\b${word}\\w{0,5}\\b`),
+}));
+
+function normalizeForProfanity(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[@4]/g, "a")
+    .replace(/[€3]/g, "e")
+    .replace(/[!1|]/g, "i")
+    .replace(/[0°]/g, "o")
+    .replace(/[$5]/g, "s")
+    .replace(/7/g, "t")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function findBadWord(value) {
+  const normalized = normalizeForProfanity(value);
+  const hit = BAD_WORD_PATTERNS.find(({ regex }) => regex.test(normalized));
+  return hit ? hit.word : null;
+}
+
+function scanAnswersForProfanity(answers) {
+  const found = [];
+  const walk = (v) => {
+    if (typeof v === "string") {
+      const normalized = normalizeForProfanity(v);
+      for (const { word, regex } of BAD_WORD_PATTERNS) {
+        const matches = normalized.match(new RegExp(regex.source, "gi"));
+        if (matches) {
+          for (const m of matches) found.push(word);
+        }
+      }
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(answers);
+  return found;
+}
+
+const ipStrikes = new Map(); // ip -> { strikes, blockedUntil }
+const BLOCK_MS = 5 * 60 * 1000;
+const STRIKE_LIMIT = 3;
+
+function getIpState(ip) {
+  let state = ipStrikes.get(ip);
+  if (!state) {
+    state = { strikes: 0, blockedUntil: 0 };
+    ipStrikes.set(ip, state);
+  }
+  return state;
+}
+
+function validateFormPayload(body) {
+  const errors = [];
+  if (!body || typeof body !== "object") return { errors: ["Request body must be JSON."] };
+
+  if (typeof body.title !== "string" || !body.title.trim()) errors.push("title is required.");
+
+  if (!Array.isArray(body.questions) || body.questions.length === 0) {
+    return { errors: [...errors, "questions must be a non-empty array."] };
+  }
+
+  body.questions.forEach((q, i) => {
+    if (typeof q.label !== "string" || !q.label.trim()) errors.push(`questions[${i}].label is required.`);
+    if (!QUESTION_TYPES.includes(q.type)) {
+      errors.push(`questions[${i}].type must be one of: ${QUESTION_TYPES.join(", ")}.`);
+    }
+    if (q.type === "text") {
+      if (q.options) errors.push(`questions[${i}]: text questions cannot have options.`);
+    } else {
+      const opts = Array.isArray(q.options) ? q.options.filter((o) => typeof o === "string" && o.trim()) : [];
+      if (new Set(opts).size < 2) errors.push(`questions[${i}].options needs at least 2 unique options.`);
+    }
+    if (q.allowOther !== undefined && typeof q.allowOther !== "boolean") {
+      errors.push(`questions[${i}].allowOther must be a boolean.`);
+    }
+    if (q.required !== undefined && typeof q.required !== "boolean") {
+      errors.push(`questions[${i}].required must be a boolean.`);
+    }
+  });
+
+  return { errors };
+}
+
+function normalizeQuestions(raw) {
+  return raw.map((q, i) => {
+    const base = {
+      id: `q${i + 1}`,
+      type: q.type,
+      label: q.label.trim(),
+      required: q.required === undefined ? true : q.required,
+    };
+    if (q.type === "text") return base;
+    return {
+      ...base,
+      options: [...new Set(q.options.map((o) => String(o).trim()).filter(Boolean))],
+      allowOther: q.type !== "dropdown" && q.allowOther === true ? true : false,
+    };
+  });
+}
+
+function isOtherValue(q, val) {
+  if (!q.allowOther || typeof val !== "string") return false;
+  if (val === "Other") return true;
+  return val.startsWith("Other:") && val.slice(6).trim().length > 0 && val.length <= MAX_TEXT_LENGTH;
+}
+
+function validateAnswers(questions, answers) {
+  const errors = [];
+
+  for (const q of questions) {
+    const val = answers?.[q.id];
+    const empty =
+      val === undefined || val === null || val === "" ||
+      (Array.isArray(val) && val.length === 0) ||
+      (typeof val === "string" && val.trim() === "");
+
+    if (empty) {
+      if (q.required !== false) errors.push(`"${q.label}" requires an answer.`);
+      continue;
+    }
+
+    if (q.type === "text") {
+      if (typeof val !== "string" || val.length > MAX_TEXT_LENGTH) {
+        errors.push(`"${q.label}" must be text of at most ${MAX_TEXT_LENGTH} characters.`);
+      }
+    } else if (q.type === "checkbox") {
+      const ok =
+        Array.isArray(val) &&
+        val.every((v) => q.options.includes(v) || isOtherValue(q, v));
+      if (!ok) errors.push(`Invalid option(s) selected for "${q.label}".`);
+    } else {
+      if (Array.isArray(val) || !(q.options.includes(val) || isOtherValue(q, val))) {
+        errors.push(`Invalid option selected for "${q.label}".`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+app.post("/api/forms", requireAllowedIp, async (req, res) => {
+  const { errors } = validateFormPayload(req.body);
+  if (errors.length) return res.status(400).json({ success: false, message: "Validation failed.", errors });
+
+  const { data, error } = await (supabaseAdmin || supabase)
+    .from("forms")
+    .insert({
+      title: req.body.title.trim(),
+      description: (req.body.description || "").trim(),
+      questions: normalizeQuestions(req.body.questions),
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  res.status(201).json({ success: true, message: "Form created.", form: data });
+});
+
+app.get("/api/forms", async (_req, res) => {
+  const { data, error } = await supabase
+    .from("forms")
+    .select("id, title, description, created_at")
+    .order("id", { ascending: true });
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  res.json({ success: true, forms: data });
+});
+
+app.get("/api/forms/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
+
+  const { data, error } = await supabase.from("forms").select("*").eq("id", id).maybeSingle();
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  if (!data) return res.status(404).json({ success: false, message: "Form not found." });
+  res.json({ success: true, form: data });
+});
+
+app.post("/api/forms/:id/responses", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
+
+  const { data: form, error: formError } = await supabase
+    .from("forms")
+    .select("id, title, questions")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (formError) return res.status(500).json({ success: false, message: formError.message });
+  if (!form) return res.status(404).json({ success: false, message: "Form not found." });
+
+  const answers = req.body?.answers;
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Request body must be JSON shaped like { "answers": { "q1": "...", ... } }.',
+    });
+  }
+
+  const errors = validateAnswers(form.questions, answers);
+  if (errors.length) return res.status(400).json({ success: false, message: "Validation failed.", errors });
+
+  const ip = clientIp(req);
+  const state = getIpState(ip);
+  const hint = Number(req.body?.strikeHint) || 0;
+  if (hint > state.strikes) state.strikes = hint;
+  if (Date.now() < state.blockedUntil) {
+    const mins = Math.ceil((state.blockedUntil - Date.now()) / 60000);
+    return res.status(403).json({
+      success: false,
+      blocked: true,
+      message: `You are temporarily blocked due to repeated violations. Try again in ${mins} minute(s).`,
+    });
+  }
+
+  const badWords = scanAnswersForProfanity(answers);
+  if (badWords.length) {
+    state.strikes += badWords.length;
+    console.warn(`Profanity from ${ip} (+${badWords.length}, total ${state.strikes}): ${badWords.join(", ")}`);
+
+    if (state.strikes >= STRIKE_LIMIT) {
+      state.blockedUntil = Date.now() + BLOCK_MS;
+      return res.status(403).json({
+        success: false,
+        blocked: true,
+        message: "Too many violations. Your IP is blocked for 5 minutes.",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      warning: true,
+      strike: state.strikes,
+      wordCount: badWords.length,
+      message: badWords.length === 1
+        ? `Please keep your responses respectful. Warning ${state.strikes} of ${STRIKE_LIMIT}.`
+        : `Found ${badWords.length} inappropriate words (${badWords.join(", ")}). Warning ${state.strikes} of ${STRIKE_LIMIT}.`,
+    });
+  }
+
+  const { data, error } = await (supabaseAdmin || supabase)
+    .from("form_responses")
+    .insert({ form_id: form.id, answers })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+
+  notifyTelegram({
+    formTitle: form.title,
+    questions: form.questions,
+    response: data,
+  }).catch((err) => console.error("Telegram notification failed:", err.message));
+
+  res.status(201).json({
+    success: true,
+    message: "Thank you! Your response was saved successfully.",
+    response: data,
+  });
+});
+
+function trunc(s, n) {
+  return s.length > n ? s.slice(0, n - 3) + "..." : s;
+}
+
+async function notifyTelegram({ formTitle, questions, response }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const lines = [
+    "New survey response",
+    `${trunc(formTitle, 60)}`,
+    `ID #${response.id}`,
+    "",
+  ];
+
+  questions.forEach((q, i) => {
+    const v = response.answers?.[q.id];
+    let val = Array.isArray(v) ? v.map((x) => x.replace(/^Other: /, "")).join("\n    ") : String(v ?? "").trim();
+    if (!val) val = "—";
+    lines.push(`${i + 1}. ${trunc(q.label, 80)}\n    ${trunc(val, 300)}`);
+  });
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: lines.join("\n"),
+      disable_web_page_preview: true,
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (!res.ok) throw new Error(`Telegram API returned ${res.status}`);
+}
+
+function buildSummary(questions, responses, { includeTextAnswers }) {
+  const summary = {};
+  for (const q of questions) {
+    summary[q.id] =
+      q.type === "text"
+        ? { label: q.label, type: q.type, answers: [], textCount: 0 }
+        : {
+            label: q.label,
+            type: q.type,
+            counts: Object.fromEntries([
+              ...q.options.map((o) => [o, 0]),
+              ...(q.allowOther ? [["Other", 0]] : []),
+            ]),
+          };
+  }
+  for (const r of responses) {
+    for (const q of questions) {
+      const s = summary[q.id];
+      const v = r.answers[q.id];
+      if (q.type === "text") {
+        if (typeof v === "string" && v.trim()) {
+          s.textCount++;
+          if (includeTextAnswers) s.answers.push(v.trim());
+        }
+      } else if (Array.isArray(v)) {
+        v.forEach((o) => {
+          if (o in s.counts) s.counts[o]++;
+          else if (s.counts.Other !== undefined && typeof o === "string" && o.startsWith("Other")) s.counts.Other++;
+        });
+      } else if (typeof v === "string") {
+        if (v in s.counts) s.counts[v]++;
+        else if (s.counts.Other !== undefined && v.startsWith("Other")) s.counts.Other++;
+      }
+    }
+  }
+  return summary;
+}
+
+app.get("/api/forms/:id/summary", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
+
+  const { data: form, error: formError } = await supabase
+    .from("forms")
+    .select("id, title, description, questions")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (formError) return res.status(500).json({ success: false, message: formError.message });
+  if (!form) return res.status(404).json({ success: false, message: "Form not found." });
+
+  const { data: responses, error } = await supabaseAdmin
+    .from("form_responses")
+    .select("answers")
+    .eq("form_id", id);
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+
+  res.json({
+    success: true,
+    total: responses.length,
+    summary: buildSummary(form.questions, responses, { includeTextAnswers: false }),
+  });
+});
+
+app.get("/api/forms/:id/responses", requireAllowedIp, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
+
+  const { data: form, error: formError } = await supabase
+    .from("forms")
+    .select("id, title, questions")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (formError) return res.status(500).json({ success: false, message: formError.message });
+  if (!form) return res.status(404).json({ success: false, message: "Form not found." });
+
+  const { data: responses, error } = await (supabaseAdmin || supabase)
+    .from("form_responses")
+    .select("id, form_id, answers, submitted_at")
+    .eq("form_id", id)
+    .order("id", { ascending: false });
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+
+  res.json({
+    success: true,
+    total: responses.length,
+    responses,
+    summary: buildSummary(form.questions, responses, { includeTextAnswers: true }),
+  });
+});
+
+app.get("/api/admin/forms", requireAllowedIp, async (_req, res) => {
+  const { data, error } = await (supabaseAdmin || supabase)
+    .from("forms")
+    .select("id, title, description, created_at, form_responses(count)")
+    .order("id", { ascending: true });
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+
+  const forms = data.map((f) => ({
+    id: f.id,
+    title: f.title,
+    description: f.description,
+    created_at: f.created_at,
+    responseCount: f.form_responses?.[0]?.count ?? 0,
+  }));
+
+  res.json({ success: true, forms });
+});
+
+app.delete("/api/forms/:id", requireAllowedIp, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
+
+  const { data, error } = await (supabaseAdmin || supabase)
+    .from("forms")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  if (!data?.length) return res.status(404).json({ success: false, message: "Form not found." });
+
+  console.log(`Deleted form #${data[0].id}`);
+  res.json({ success: true, message: `Form #${data[0].id} deleted.` });
+});
+
+app.delete("/api/forms/:id/responses", requireAllowedIp, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
+
+  const { data: form } = await supabase.from("forms").select("id").eq("id", id).maybeSingle();
+  if (!form) return res.status(404).json({ success: false, message: "Form not found." });
+
+  const client = supabaseAdmin || supabase;
+
+  const { count } = await client
+    .from("form_responses")
+    .select("id", { count: "exact", head: true })
+    .eq("form_id", id);
+
+  const { error } = await client.from("form_responses").delete().eq("form_id", id);
+
+  if (error) {
+    if (error.code === "42501") {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Server lacks delete permission. Add SUPABASE_SERVICE_ROLE_KEY to .env (RLS blocks deletes for the public key).",
+      });
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+
+  console.log(`Cleared ${count || 0} responses for form #${id}`);
+  res.json({ success: true, message: `Deleted ${count || 0} responses.` });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(err.status || 500).json({ success: false, message: err.message || "Server error." });
+});
+
+app.listen(PORT, () => {
+  console.log(`Survey server running at http://localhost:${PORT}`);
+});
