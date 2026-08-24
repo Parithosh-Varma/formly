@@ -6,7 +6,8 @@
   <title>Formly — Survey Results</title>
   <link rel="icon" type="image/png" href="/logo.png" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/iconoir-icons/iconoir@main/css/iconoir.css" />
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="stylesheet" href="style.css?v=9" />
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 </head>
 <body>
   <nav class="topnav">
@@ -16,6 +17,7 @@
         <a href="/">Survey</a>
         <a href="/results.html" class="on">Results</a>
         <a href="/admin.html">Admin</a>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle theme"><i class="iconoir-half-moon"></i></button>
       </div>
     </div>
   </nav>
@@ -35,7 +37,36 @@
         </div>
       </header>
 
-      <div id="charts" class="charts"></div>
+      <div class="results-toolbar" id="resultsToolbar" style="display:none">
+        <div class="toolbar-left">
+          <input type="text" class="search-input" id="searchInput" placeholder="Search text answers..." aria-label="Search answers" />
+          <select class="filter-select" id="sortSelect" aria-label="Sort answers">
+            <option value="default">Sort: default</option>
+            <option value="count">Sort: by count</option>
+            <option value="alpha">Sort: A → Z</option>
+          </select>
+          <select class="filter-select" id="filterQuestion" aria-label="Filter question"><option value="">All questions</option></select>
+        </div>
+        <div class="toolbar-right">
+          <div class="chart-toggle" role="group" aria-label="Chart type">
+            <button type="button" class="on" data-chart="bar" id="chartBarBtn"><i class="iconoir-graph-up"></i> Bars</button>
+            <button type="button" data-chart="donut" id="chartDonutBtn"><i class="iconoir-circle"></i> Donut</button>
+          </div>
+          <button type="button" class="mini-btn" id="exportCsvBtn"><i class="iconoir-download"></i> CSV</button>
+          <button type="button" class="mini-btn" id="copyLinkBtn"><i class="iconoir-link"></i> Copy link</button>
+        </div>
+      </div>
+
+      <div id="charts" class="charts">
+        <div class="skeleton-card"><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:45%"></div><div class="skeleton skeleton-bar"></div><div class="skeleton skeleton-bar" style="width:85%"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-line" style="width:50%"></div><div class="skeleton skeleton-bar"></div><div class="skeleton skeleton-bar" style="width:70%"></div></div>
+      </div>
+
+      <div class="pagination hidden" id="pagination" style="padding:14px 48px;border-top:1px solid #f0f1f5;background:var(--surface);">
+        <button type="button" class="back-btn" id="prevPage">← Prev</button>
+        <span id="pageInfo">Page 1</span>
+        <button type="button" class="back-btn" id="nextPage">Next →</button>
+      </div>
 
       <footer class="results-footer">
         <button id="clearBtn" class="danger-btn hidden" type="button"><i class="iconoir-trash"></i>Clear all responses</button>
@@ -44,6 +75,10 @@
 
     </section>
   </main>
-  <script src="results.js?v=3"></script>
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal" id="modalBox"><h3 id="modalTitle">Confirm</h3><p id="modalMsg">Are you sure?</p><div class="modal-actions"><button type="button" class="back-btn" id="modalCancel">Cancel</button><button type="button" class="danger-btn" id="modalOk">Confirm</button></div></div>
+  </div>
+  <script src="results.js?v=7"></script>
 </body>
 </html>

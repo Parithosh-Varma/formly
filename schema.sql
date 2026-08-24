@@ -5,16 +5,16 @@
 
 CREATE TABLE IF NOT EXISTS public.forms (
   id SERIAL PRIMARY KEY,
-  title TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  questions JSONB NOT NULL,
+  title TEXT NOT NULL CHECK (char_length(title) > 0 AND char_length(title) <= 200),
+  description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 500),
+  questions JSONB NOT NULL CHECK (jsonb_typeof(questions) = 'array' AND jsonb_array_length(questions) BETWEEN 1 AND 50),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS public.form_responses (
   id SERIAL PRIMARY KEY,
   form_id INTEGER NOT NULL REFERENCES public.forms(id) ON DELETE CASCADE,
-  answers JSONB NOT NULL,
+  answers JSONB NOT NULL CHECK (jsonb_typeof(answers) = 'object' AND octet_length(answers::text) < 20000),
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

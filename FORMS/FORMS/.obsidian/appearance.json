@@ -1,0 +1,9 @@
+{
+  "accentColor": "#ff3b30",
+  "theme": "obsidian",
+  "translucency": false,
+  "enabledCssSnippets": [
+    "graph-cool",
+    "vault-style"
+  ]
+}

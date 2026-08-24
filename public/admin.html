@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/iconoir-icons/iconoir@main/css/iconoir.css" />
   <link rel="icon" type="image/png" href="/logo.png" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/iconoir-icons/iconoir@main/css/iconoir.css" />
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="stylesheet" href="style.css?v=9" />
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 </head>
 <body>
   <nav class="topnav">
@@ -17,6 +18,7 @@
         <a href="/">Survey</a>
         <a href="/results.html">Results</a>
         <a href="/admin.html" class="on">Admin</a>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle theme"><i class="iconoir-half-moon"></i></button>
       </div>
     </div>
   </nav>
@@ -41,8 +43,26 @@
         <label class="field-label">Title<input id="bTitle" type="text" placeholder="e.g., Course Feedback — Week 4"></label>
         <label class="field-label">Description <small>(optional)</small><input id="bDesc" type="text" placeholder="Shown under the title"></label>
 
+        <div class="builder-templates" id="builderTemplates">
+          <button type="button" class="template-chip" data-template="feedback"><i class="iconoir-chat-bubble"></i> Course Feedback</button>
+          <button type="button" class="template-chip" data-template="ai"><i class="iconoir-brain"></i> AI Survey</button>
+          <button type="button" class="template-chip" data-template="nps"><i class="iconoir-star"></i> NPS</button>
+          <button type="button" class="template-chip" data-template="blank"><i class="iconoir-plus"></i> Blank</button>
+        </div>
+
         <div id="qList"></div>
         <button class="back-btn" id="addQBtn" type="button">+ Add question</button>
+
+        <div class="preview-shell" id="previewShell" style="display:none">
+          <div class="preview-header"><span><i class="iconoir-eye"></i> Live Preview</span><button type="button" class="mini-btn" id="previewToggle">Hide</button></div>
+          <div class="preview-body" id="previewBody"></div>
+        </div>
+
+        <div class="admin-import">
+          <button type="button" class="mini-btn" id="exportJsonBtn"><i class="iconoir-download"></i> Export JSON</button>
+          <label class="mini-btn" style="cursor:pointer"><i class="iconoir-upload"></i> Import JSON <input type="file" id="importJsonInput" accept=".json" style="display:none"></label>
+          <button type="button" class="mini-btn" id="previewBtn"><i class="iconoir-eye"></i> Toggle Preview</button>
+        </div>
 
         <div class="builder-actions">
           <button class="submit" id="createBtn" type="button">Create form</button>
@@ -50,7 +70,10 @@
         </div>
       </div>
 
-      <div id="listArea" class="charts"></div>
+      <div id="listArea" class="charts">
+        <div class="skeleton-card"><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:40%"></div><div class="skeleton skeleton-bar" style="width:100%"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-line" style="width:55%"></div><div class="skeleton skeleton-line" style="width:35%"></div><div class="skeleton skeleton-bar" style="width:100%"></div></div>
+      </div>
 
       <footer class="results-footer">
         <span class="privacy">Admin access is restricted to allowlisted IPs.</span>
@@ -59,6 +82,10 @@
 
     </section>
   </main>
-  <script src="admin.js?v=3"></script>
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal" id="modalBox"><h3 id="modalTitle">Confirm</h3><p id="modalMsg">Are you sure?</p><div class="modal-actions"><button type="button" class="back-btn" id="modalCancel">Cancel</button><button type="button" class="submit" id="modalOk">Confirm</button></div></div>
+  </div>
+  <script src="admin.js?v=7"></script>
 </body>
 </html>

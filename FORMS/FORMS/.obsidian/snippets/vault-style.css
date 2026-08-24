@@ -1,0 +1,51 @@
+/* vault-style.css — Formly vault theming */
+:root {
+  --formly-red: #ff3b30;
+  --formly-green: #30d158;
+  --formly-blue: #0a84ff;
+  --formly-purple: #af52de;
+  --formly-orange: #ff9500;
+  --formly-pink: #ff375f;
+  --formly-teal: #5ac8fa;
+  --formly-yellow: #ffd60a;
+}
+.markdown-preview-view h1 {
+  border-bottom: 2px solid var(--formly-blue);
+  padding-bottom: 6px;
+  letter-spacing: -0.02em;
+}
+.markdown-preview-view h2 {
+  color: var(--formly-purple);
+  border-left: 4px solid var(--formly-blue);
+  padding-left: 10px;
+}
+.markdown-preview-view blockquote {
+  border-left: 3px solid var(--formly-green);
+  background: rgba(48,209,88,0.06);
+  padding: 10px 14px;
+  border-radius: 6px;
+}
+.tag[href="#bug"], .tag[href="#bug/critical"] {
+  background: var(--formly-red) !important;
+  color: white !important;
+}
+.tag[href="#fix"], .tag[href="#fix/verified"] {
+  background: var(--formly-green) !important;
+  color: white !important;
+}
+.tag[href="#audit"] {
+  background: var(--formly-blue) !important;
+  color: white !important;
+}
+.tag[href="#moc"] {
+  background: var(--formly-orange) !important;
+  color: white !important;
+}
+.callout[data-callout="tip"] {
+  border-left-color: var(--formly-teal);
+}
+.nav-file-title.is-active {
+  background: rgba(10,132,255,0.15) !important;
+  color: var(--formly-blue) !important;
+  font-weight: 700;
+}

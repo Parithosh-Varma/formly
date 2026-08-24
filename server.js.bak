@@ -23,27 +23,9 @@ const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
     })
   : null;
 
-// ---------- helpers ----------
-function asyncHandler(fn) {
-  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-}
-
-app.use(express.json({ limit: "25kb" }));
-// Security headers
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "0");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  // CSP: allow self + cdn.jsdelivr.net for Iconoir, no inline scripts except needed
-  res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net data:; script-src 'self'; connect-src 'self' https://*.supabase.co; frame-ancestors 'none'");
-  next();
-});
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
- // Only trust loopback proxy (nginx on same host), not arbitrary XFF
-if (process.env.TRUST_PROXY === "1") app.set("trust proxy", "loopback");
-else app.set("trust proxy", false);
+if (process.env.TRUST_PROXY === "1") app.set("trust proxy", true);
 
 const ALLOWED_IPS = new Set(
   (process.env.ALLOWED_IPS || "")
@@ -51,14 +33,6 @@ const ALLOWED_IPS = new Set(
     .map((s) => s.trim())
     .filter(Boolean)
 );
-
-function isLoopbackIp(ip) {
-  if (!ip) return false;
-  if (ip === "::1" || ip === "127.0.0.1") return true;
-  // ::ffff:127.x.x.x after strippinghandled in clientIp, but also 127.0.0.0/8
-  if (ip.startsWith("127.")) return true;
-  return false;
-}
 
 function clientIp(req) {
   let ip = req.ip || req.socket.remoteAddress || "";
@@ -68,7 +42,7 @@ function clientIp(req) {
 
 function requireAllowedIp(req, res, next) {
   const ip = clientIp(req);
-  const loopback = isLoopbackIp(ip);
+  const loopback = ip === "::1" || ip === "127.0.0.1";
   if (!loopback && !ALLOWED_IPS.has(ip)) {
     console.warn(`Blocked request from non-allowlisted IP: ${ip}`);
     return res.status(403).json({ success: false, message: "Access restricted." });
@@ -78,12 +52,6 @@ function requireAllowedIp(req, res, next) {
 
 const QUESTION_TYPES = ["dropdown", "radio", "checkbox", "text"];
 const MAX_TEXT_LENGTH = 2000;
-const MAX_TITLE_LENGTH = 200;
-const MAX_DESCRIPTION_LENGTH = 500;
-const MAX_LABEL_LENGTH = 300;
-const MAX_OPTION_LENGTH = 100;
-const MAX_QUESTIONS = 50;
-const MAX_OPTIONS_PER_QUESTION = 20;
 
 /* ---------- profanity guard ---------- */
 
@@ -100,74 +68,61 @@ const BAD_WORDS = [
 
 const BAD_WORD_PATTERNS = BAD_WORDS.map((word) => ({
   word,
-  regex: new RegExp(`\\b${word}\\w{0,5}\\b`, "i"),
+  regex: new RegExp(`\\b${word}\\w{0,5}\\b`),
 }));
 
 function normalizeForProfanity(text) {
   return String(text)
     .toLowerCase()
-    // strip zero-width and similar invisible chars
-    .replace(/[\u200B\u200C\u200D\uFEFF\u00AD]/g, "")
     .replace(/[@4]/g, "a")
     .replace(/[€3]/g, "e")
     .replace(/[!1|]/g, "i")
     .replace(/[0°]/g, "o")
     .replace(/[$5]/g, "s")
     .replace(/7/g, "t")
-    // collapse repeated letters (e.g., fuuuuck -> fuck) before stripping
-    .replace(/(.)\1{2,}/g, "$1$1")
     .replace(/[^a-z\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function tokenMatchesWithWildcard(token, word) {
-  if (token.length !== word.length) return false;
-  if (!token.includes("*")) return false;
-  for (let i = 0; i < word.length; i++) {
-    if (token[i] !== "*" && token[i] !== word[i]) return false;
-  }
-  return true;
+    .replace(/\s+/g, " ");
 }
 
 function findBadWord(value) {
   const normalized = normalizeForProfanity(value);
-  const collapsed = normalized.replace(/\s+/g, "");
-  for (const { word, regex } of BAD_WORD_PATTERNS) {
-    if (regex.test(normalized) || regex.test(collapsed)) return word;
-  }
+  const hit = BAD_WORD_PATTERNS.find(({ regex }) => regex.test(normalized));
+  if (hit) return hit.word;
   const raw = String(value).toLowerCase();
-  // split into tokens keeping * as valid char
-  const tokens = raw.split(/[^a-z*]+/).filter(Boolean);
-  for (const token of tokens) {
-    for (const word of BAD_WORDS) {
-      if (tokenMatchesWithWildcard(token, word)) return word;
+  for (const word of BAD_WORDS) {
+    for (let i = 0; i < word.length; i++) {
+      const variant = word.slice(0, i) + "*" + word.slice(i + 1);
+      if (raw.includes(variant)) return word;
     }
   }
   return null;
 }
 
 function scanAnswersForProfanity(answers) {
-  const found = new Set();
+  const found = [];
   const walk = (v) => {
     if (typeof v === "string") {
-      const normalized = normalizeForProfanity(v);
-      const collapsed = normalized.replace(/\s+/g, "");
-      for (const { word, regex } of BAD_WORD_PATTERNS) {
-        if (regex.test(normalized) || regex.test(collapsed)) found.add(word);
-      }
       const rawLower = String(v).toLowerCase();
-      const tokens = rawLower.split(/[^a-z*]+/).filter(Boolean);
-      for (const token of tokens) {
-        for (const word of BAD_WORDS) {
-          if (tokenMatchesWithWildcard(token, word)) found.add(word);
+      for (const word of BAD_WORDS) {
+        for (let i = 0; i < word.length; i++) {
+          const variant = word.slice(0, i) + "*" + word.slice(i + 1);
+          if (rawLower.includes(variant)) {
+            found.push(word);
+          }
+        }
+      }
+      const normalized = normalizeForProfanity(v);
+      for (const { word, regex } of BAD_WORD_PATTERNS) {
+        const matches = normalized.match(new RegExp(regex.source, "gi"));
+        if (matches) {
+          for (const m of matches) found.push(word);
         }
       }
     } else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === "object") Object.values(v).forEach(walk);
   };
   walk(answers);
-  return [...found];
+  return found;
 }
 
 const ipStrikes = new Map(); // ip -> { strikes, blockedUntil }
@@ -179,7 +134,7 @@ const RATE_LIMIT_WINDOW = 60 * 1000;
 const RATE_LIMIT_MAX = 30;
 
 function checkRateLimit(ip) {
-  const key = isLoopbackIp(ip) ? `loopback:${ip}` : ip;
+  const key = ip === "::1" || ip === "127.0.0.1" ? "loopback" : ip;
   const now = Date.now();
   let entry = rateLimitMap.get(key);
   if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW) {
@@ -192,7 +147,7 @@ function checkRateLimit(ip) {
 }
 
 function getIpState(ip) {
-  const key = isLoopbackIp(ip) ? `loopback:${ip}` : ip;
+  const key = ip === "::1" || ip === "127.0.0.1" ? "loopback" : ip;
   let state = ipStrikes.get(key);
   if (!state) {
     state = { strikes: 0, blockedUntil: 0 };
@@ -201,83 +156,32 @@ function getIpState(ip) {
   return state;
 }
 
-// periodic cleanup to prevent unbounded growth
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of rateLimitMap) {
-    if (now - v.windowStart > RATE_LIMIT_WINDOW * 2) rateLimitMap.delete(k);
-  }
-  for (const [k, v] of ipStrikes) {
-    if (v.blockedUntil && now > v.blockedUntil + 60 * 60 * 1000) ipStrikes.delete(k);
-    else if (!v.blockedUntil && v.strikes === 0) ipStrikes.delete(k);
-  }
-}, 60 * 1000).unref();
-
-// Validate & sanitize description safely
-function getDescription(body) {
-  if (body.description === undefined || body.description === null) return "";
-  if (typeof body.description !== "string") return null; // signal invalid
-  return body.description.trim();
-}
-
 function validateFormPayload(body) {
   const errors = [];
-  if (!body || typeof body !== "object" || Array.isArray(body)) return { errors: ["Request body must be JSON."] };
+  if (!body || typeof body !== "object") return { errors: ["Request body must be JSON."] };
 
   if (typeof body.title !== "string" || !body.title.trim()) errors.push("title is required.");
-  else if (body.title.trim().length > MAX_TITLE_LENGTH) errors.push(`title must be at most ${MAX_TITLE_LENGTH} characters.`);
-
-  const desc = getDescription(body);
-  if (desc === null) errors.push("description must be a string.");
-  else if (desc.length > MAX_DESCRIPTION_LENGTH) errors.push(`description must be at most ${MAX_DESCRIPTION_LENGTH} characters.`);
 
   if (!Array.isArray(body.questions) || body.questions.length === 0) {
     return { errors: [...errors, "questions must be a non-empty array."] };
   }
-  if (body.questions.length > MAX_QUESTIONS) errors.push(`questions must be at most ${MAX_QUESTIONS} items.`);
 
   body.questions.forEach((q, i) => {
-    if (!q || typeof q !== "object" || Array.isArray(q)) {
-      errors.push(`questions[${i}] must be an object.`);
-      return;
-    }
     if (typeof q.label !== "string" || !q.label.trim()) errors.push(`questions[${i}].label is required.`);
-    else if (q.label.trim().length > MAX_LABEL_LENGTH) errors.push(`questions[${i}].label must be at most ${MAX_LABEL_LENGTH} characters.`);
-
     if (!QUESTION_TYPES.includes(q.type)) {
       errors.push(`questions[${i}].type must be one of: ${QUESTION_TYPES.join(", ")}.`);
-      return;
     }
     if (q.type === "text") {
-      if (q.options !== undefined) errors.push(`questions[${i}]: text questions cannot have options.`);
-      if (q.allowOther) errors.push(`questions[${i}]: text questions cannot have allowOther.`);
+      if (q.options) errors.push(`questions[${i}]: text questions cannot have options.`);
     } else {
-      const rawOpts = Array.isArray(q.options) ? q.options : [];
-      // must be array of at least 2 raw entries
-      if (!Array.isArray(q.options)) errors.push(`questions[${i}].options must be an array.`);
-      else {
-        const trimmedOpts = rawOpts.map(o => typeof o === "string" ? o.trim() : "").filter(Boolean);
-        const uniqueOpts = [...new Set(trimmedOpts)];
-        if (uniqueOpts.length < 2) errors.push(`questions[${i}].options needs at least 2 unique options.`);
-        if (uniqueOpts.length > MAX_OPTIONS_PER_QUESTION) errors.push(`questions[${i}].options must be at most ${MAX_OPTIONS_PER_QUESTION} items.`);
-        for (const o of uniqueOpts) {
-          if (o.length > MAX_OPTION_LENGTH) errors.push(`questions[${i}].options: option too long (max ${MAX_OPTION_LENGTH}).`);
-        }
-        // detect non-string options that would be silently dropped
-        const nonStringCount = rawOpts.filter(o => typeof o !== "string").length;
-        if (nonStringCount) errors.push(`questions[${i}].options must be strings.`);
-      }
+      const opts = Array.isArray(q.options) ? q.options.filter((o) => typeof o === "string" && o.trim()) : [];
+      if (new Set(opts).size < 2) errors.push(`questions[${i}].options needs at least 2 unique options.`);
     }
     if (q.allowOther !== undefined && typeof q.allowOther !== "boolean") {
       errors.push(`questions[${i}].allowOther must be a boolean.`);
     }
     if (q.required !== undefined && typeof q.required !== "boolean") {
       errors.push(`questions[${i}].required must be a boolean.`);
-    }
-    // disallow unknown keys that could be prototype pollution
-    const allowedKeys = new Set(["label","type","options","allowOther","required"]);
-    for (const k of Object.keys(q)) {
-      if (!allowedKeys.has(k)) errors.push(`questions[${i}].${k} is not allowed.`);
     }
   });
 
@@ -304,29 +208,11 @@ function normalizeQuestions(raw) {
 function isOtherValue(q, val) {
   if (!q.allowOther || typeof val !== "string") return false;
   if (val === "Other") return true;
-  if (!val.startsWith("Other:")) return false;
-  const inner = val.slice(6).trim();
-  if (!inner.length) return false;
-  if (inner.length > 500) return false;
-  if (val.length > MAX_TEXT_LENGTH) return false;
-  return true;
+  return val.startsWith("Other:") && val.slice(6).trim().length > 0 && val.length <= MAX_TEXT_LENGTH;
 }
 
 function validateAnswers(questions, answers) {
   const errors = [];
-  // reject extra keys and __proto__ pollution
-  const allowedIds = new Set(questions.map(q=>q.id));
-  for (const k of Object.keys(answers)) {
-    if (k === "__proto__" || k === "constructor" || k === "prototype") {
-      errors.push(`Invalid answer key: ${k}`);
-      continue;
-    }
-    if (!allowedIds.has(k)) errors.push(`Unexpected answer key: ${k}`);
-  }
-  // reject non-object values that are excessive
-  if (Object.keys(answers).length > questions.length) {
-    // already pushed per-key, but keep generic
-  }
 
   for (const q of questions) {
     const val = answers?.[q.id];
@@ -345,23 +231,12 @@ function validateAnswers(questions, answers) {
         errors.push(`"${q.label}" must be text of at most ${MAX_TEXT_LENGTH} characters.`);
       }
     } else if (q.type === "checkbox") {
-      if (!Array.isArray(val)) {
-        errors.push(`Invalid option(s) selected for "${q.label}".`);
-        continue;
-      }
-      if (val.length > q.options.length + 1) {
-        errors.push(`Too many selections for "${q.label}".`);
-        continue;
-      }
-      // reject duplicates
-      if (new Set(val).size !== val.length) {
-        errors.push(`Duplicate selections for "${q.label}".`);
-        continue;
-      }
-      const ok = val.every((v) => typeof v === "string" && (q.options.includes(v) || isOtherValue(q, v)));
+      const ok =
+        Array.isArray(val) &&
+        val.every((v) => q.options.includes(v) || isOtherValue(q, v));
       if (!ok) errors.push(`Invalid option(s) selected for "${q.label}".`);
     } else {
-      if (Array.isArray(val) || typeof val !== "string" || !(q.options.includes(val) || isOtherValue(q, val))) {
+      if (Array.isArray(val) || !(q.options.includes(val) || isOtherValue(q, val))) {
         errors.push(`Invalid option selected for "${q.label}".`);
       }
     }
@@ -370,16 +245,15 @@ function validateAnswers(questions, answers) {
   return errors;
 }
 
-app.post("/api/forms", requireAllowedIp, asyncHandler(async (req, res) => {
+app.post("/api/forms", requireAllowedIp, async (req, res) => {
   const { errors } = validateFormPayload(req.body);
   if (errors.length) return res.status(400).json({ success: false, message: "Validation failed.", errors });
 
-  const desc = getDescription(req.body);
   const { data, error } = await (supabaseAdmin || supabase)
     .from("forms")
     .insert({
       title: req.body.title.trim(),
-      description: desc || "",
+      description: (req.body.description || "").trim(),
       questions: normalizeQuestions(req.body.questions),
     })
     .select()
@@ -387,32 +261,31 @@ app.post("/api/forms", requireAllowedIp, asyncHandler(async (req, res) => {
 
   if (error) return res.status(500).json({ success: false, message: error.message });
   res.status(201).json({ success: true, message: "Form created.", form: data });
-}));
+});
 
-app.get("/api/forms", asyncHandler(async (_req, res) => {
+app.get("/api/forms", async (_req, res) => {
   const { data, error } = await supabase
     .from("forms")
     .select("id, title, description, created_at")
-    .order("id", { ascending: true })
-    .limit(100);
+    .order("id", { ascending: true });
 
   if (error) return res.status(500).json({ success: false, message: error.message });
   res.json({ success: true, forms: data });
-}));
+});
 
-app.get("/api/forms/:id", asyncHandler(async (req, res) => {
+app.get("/api/forms/:id", async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Invalid form id." });
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
 
   const { data, error } = await supabase.from("forms").select("*").eq("id", id).maybeSingle();
   if (error) return res.status(500).json({ success: false, message: error.message });
   if (!data) return res.status(404).json({ success: false, message: "Form not found." });
   res.json({ success: true, form: data });
-}));
+});
 
-app.post("/api/forms/:id/responses", asyncHandler(async (req, res) => {
+app.post("/api/forms/:id/responses", async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Invalid form id." });
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
 
   const { data: form, error: formError } = await supabase
     .from("forms")
@@ -431,20 +304,16 @@ app.post("/api/forms/:id/responses", asyncHandler(async (req, res) => {
     });
   }
 
-  // rate limit BEFORE validation to prevent probe flood bypass
+  const errors = validateAnswers(form.questions, answers);
+  if (errors.length) return res.status(400).json({ success: false, message: "Validation failed.", errors });
+
   const ip = clientIp(req);
   if (!checkRateLimit(ip)) {
     return res.status(429).json({ success: false, message: "Too many requests. Please slow down." });
   }
-
-  const errors = validateAnswers(form.questions, answers);
-  if (errors.length) return res.status(400).json({ success: false, message: "Validation failed.", errors });
-
   const state = getIpState(ip);
-  // Remove client-controlled strikeHint trust — ignore it completely for security
-  // Keep for backward compat but do not increase strikes from it
-  // const hint = Number(req.body?.strikeHint) || 0;
-  // if (hint > state.strikes) state.strikes = hint;
+  const hint = Number(req.body?.strikeHint) || 0;
+  if (hint > state.strikes) state.strikes = hint;
   if (Date.now() < state.blockedUntil) {
     const mins = Math.ceil((state.blockedUntil - Date.now()) / 60000);
     return res.status(403).json({
@@ -479,18 +348,14 @@ app.post("/api/forms/:id/responses", asyncHandler(async (req, res) => {
     });
   }
 
-  // sanitize answers: trim strings, dedup already validated, but ensure no prototype pollution persists
-  const sanitizedAnswers = JSON.parse(JSON.stringify(answers));
-
   const { data, error } = await (supabaseAdmin || supabase)
     .from("form_responses")
-    .insert({ form_id: form.id, answers: sanitizedAnswers })
+    .insert({ form_id: form.id, answers })
     .select()
     .single();
 
   if (error) return res.status(500).json({ success: false, message: error.message });
 
-  // fire-and-forget telegram with concurrency guard (limit 5)
   notifyTelegram({
     formTitle: form.title,
     questions: form.questions,
@@ -502,64 +367,43 @@ app.post("/api/forms/:id/responses", asyncHandler(async (req, res) => {
     message: "Thank you! Your response was saved successfully.",
     response: data,
   });
-}));
+});
 
 function trunc(s, n) {
-  return String(s).length > n ? String(s).slice(0, n - 3) + "..." : String(s);
+  return s.length > n ? s.slice(0, n - 3) + "..." : s;
 }
 
-let telegramInFlight = 0;
-const TELEGRAM_MAX_CONCURRENCY = 5;
 async function notifyTelegram({ formTitle, questions, response }) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
-  if (telegramInFlight >= TELEGRAM_MAX_CONCURRENCY) {
-    console.warn("Telegram throttled: too many concurrent notifications");
-    return;
-  }
-  telegramInFlight++;
-  try {
-    const lines = [
-      "New survey response",
-      `${trunc(formTitle, 60)}`,
-      `ID #${response.id}`,
-      "",
-    ];
 
-    questions.forEach((q, i) => {
-      const v = response.answers?.[q.id];
-      let val = Array.isArray(v) ? v.map((x) => String(x).replace(/^Other: /, "")).join("\n    ") : String(v ?? "").trim();
-      // sanitize newlines to prevent injection
-      val = val.replace(/\n/g, " ");
-      if (!val) val = "—";
-      lines.push(`${i + 1}. ${trunc(q.label, 80).replace(/\n/g," ")}\n    ${trunc(val, 300)}`);
-    });
+  const lines = [
+    "New survey response",
+    `${trunc(formTitle, 60)}`,
+    `ID #${response.id}`,
+    "",
+  ];
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    let res;
-    try {
-      // Prefer AbortSignal.timeout if available, fallback to controller
-      const signal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : controller.signal;
-      res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: lines.join("\n"),
-          disable_web_page_preview: true,
-        }),
-        signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+  questions.forEach((q, i) => {
+    const v = response.answers?.[q.id];
+    let val = Array.isArray(v) ? v.map((x) => x.replace(/^Other: /, "")).join("\n    ") : String(v ?? "").trim();
+    if (!val) val = "—";
+    lines.push(`${i + 1}. ${trunc(q.label, 80)}\n    ${trunc(val, 300)}`);
+  });
 
-    if (!res.ok) throw new Error(`Telegram API returned ${res.status}`);
-  } finally {
-    telegramInFlight--;
-  }
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: lines.join("\n"),
+      disable_web_page_preview: true,
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (!res.ok) throw new Error(`Telegram API returned ${res.status}`);
 }
 
 function buildSummary(questions, responses, { includeTextAnswers }) {
@@ -588,23 +432,21 @@ function buildSummary(questions, responses, { includeTextAnswers }) {
         }
       } else if (Array.isArray(v)) {
         v.forEach((o) => {
-          if (Object.prototype.hasOwnProperty.call(s.counts, o)) s.counts[o]++;
-          else if (s.counts.Other !== undefined && typeof o === "string" && o === "Other") s.counts.Other++;
-          else if (s.counts.Other !== undefined && typeof o === "string" && isOtherValue(q, o)) s.counts.Other++;
+          if (o in s.counts) s.counts[o]++;
+          else if (s.counts.Other !== undefined && typeof o === "string" && o.startsWith("Other")) s.counts.Other++;
         });
       } else if (typeof v === "string") {
-        if (Object.prototype.hasOwnProperty.call(s.counts, v)) s.counts[v]++;
-        else if (s.counts.Other !== undefined && v === "Other") s.counts.Other++;
-        else if (s.counts.Other !== undefined && isOtherValue(q, v)) s.counts.Other++;
+        if (v in s.counts) s.counts[v]++;
+        else if (s.counts.Other !== undefined && v.startsWith("Other")) s.counts.Other++;
       }
     }
   }
   return summary;
 }
 
-app.get("/api/forms/:id/summary", asyncHandler(async (req, res) => {
+app.get("/api/forms/:id/summary", async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Invalid form id." });
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
 
   const { data: form, error: formError } = await supabase
     .from("forms")
@@ -615,14 +457,10 @@ app.get("/api/forms/:id/summary", asyncHandler(async (req, res) => {
   if (formError) return res.status(500).json({ success: false, message: formError.message });
   if (!form) return res.status(404).json({ success: false, message: "Form not found." });
 
-  const client = supabaseAdmin || supabase;
-  if (!client) return res.status(503).json({ success: false, message: "Service unavailable." });
-
-  const { data: responses, error } = await client
+  const { data: responses, error } = await supabaseAdmin
     .from("form_responses")
     .select("answers")
-    .eq("form_id", id)
-    .limit(5000);
+    .eq("form_id", id);
 
   if (error) return res.status(500).json({ success: false, message: error.message });
 
@@ -631,11 +469,11 @@ app.get("/api/forms/:id/summary", asyncHandler(async (req, res) => {
     total: responses.length,
     summary: buildSummary(form.questions, responses, { includeTextAnswers: false }),
   });
-}));
+});
 
-app.get("/api/forms/:id/responses", requireAllowedIp, asyncHandler(async (req, res) => {
+app.get("/api/forms/:id/responses", requireAllowedIp, async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Invalid form id." });
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
 
   const { data: form, error: formError } = await supabase
     .from("forms")
@@ -650,8 +488,7 @@ app.get("/api/forms/:id/responses", requireAllowedIp, asyncHandler(async (req, r
     .from("form_responses")
     .select("id, form_id, answers, submitted_at")
     .eq("form_id", id)
-    .order("id", { ascending: false })
-    .limit(1000);
+    .order("id", { ascending: false });
 
   if (error) return res.status(500).json({ success: false, message: error.message });
 
@@ -661,14 +498,13 @@ app.get("/api/forms/:id/responses", requireAllowedIp, asyncHandler(async (req, r
     responses,
     summary: buildSummary(form.questions, responses, { includeTextAnswers: true }),
   });
-}));
+});
 
-app.get("/api/admin/forms", requireAllowedIp, asyncHandler(async (_req, res) => {
+app.get("/api/admin/forms", requireAllowedIp, async (_req, res) => {
   const { data, error } = await (supabaseAdmin || supabase)
     .from("forms")
     .select("id, title, description, created_at, form_responses(count)")
-    .order("id", { ascending: true })
-    .limit(100);
+    .order("id", { ascending: true });
 
   if (error) return res.status(500).json({ success: false, message: error.message });
 
@@ -681,11 +517,11 @@ app.get("/api/admin/forms", requireAllowedIp, asyncHandler(async (_req, res) => 
   }));
 
   res.json({ success: true, forms });
-}));
+});
 
-app.delete("/api/forms/:id", requireAllowedIp, asyncHandler(async (req, res) => {
+app.delete("/api/forms/:id", requireAllowedIp, async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Invalid form id." });
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
 
   const { data, error } = await (supabaseAdmin || supabase)
     .from("forms")
@@ -698,11 +534,11 @@ app.delete("/api/forms/:id", requireAllowedIp, asyncHandler(async (req, res) => 
 
   console.log(`Deleted form #${data[0].id}`);
   res.json({ success: true, message: `Form #${data[0].id} deleted.` });
-}));
+});
 
-app.delete("/api/forms/:id/responses", requireAllowedIp, asyncHandler(async (req, res) => {
+app.delete("/api/forms/:id/responses", requireAllowedIp, async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Invalid form id." });
+  if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: "Invalid form id." });
 
   const { data: form } = await supabase.from("forms").select("id").eq("id", id).maybeSingle();
   if (!form) return res.status(404).json({ success: false, message: "Form not found." });
@@ -729,16 +565,9 @@ app.delete("/api/forms/:id/responses", requireAllowedIp, asyncHandler(async (req
 
   console.log(`Cleared ${count || 0} responses for form #${id}`);
   res.json({ success: true, message: `Deleted ${count || 0} responses.` });
-}));
+});
 
-// JSON parse / payload errors
 app.use((err, _req, res, _next) => {
-  if (err.type === "entity.parse.failed" || err instanceof SyntaxError) {
-    return res.status(400).json({ success: false, message: "Invalid JSON." });
-  }
-  if (err.type === "entity.too.large") {
-    return res.status(413).json({ success: false, message: "Payload too large." });
-  }
   console.error(err);
   res.status(err.status || 500).json({ success: false, message: err.message || "Server error." });
 });
