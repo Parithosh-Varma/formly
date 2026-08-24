@@ -11,7 +11,7 @@ tags: [frontend, audit, app-js, admin-js, results-js, a11y]
 
 | # | Title | File:Line | Severity | Before | After |
 |---|-------|-----------|----------|--------|-------|
-| 1 | `draftDismissKey is not defined` | `app.js:273` | Critical | `ReferenceError` swallowed | Added `function draftDismissKey(){return dismiss_${id}}` |
+| 1 | `draftDismissKey is not defined` | `app.js:281` | Critical | `ReferenceError` swallowed | Added `function draftDismissKey(){return dismiss_${id}}` |
 | 2 | XSS `q.id` not escaped | `app.js:563,577,583,589,598,613` | Critical | `name="${q.id}"` | All → `esc(q.id)` 7 sites |
 | 3 | Block bypass per-form | `app.js:820` | Critical | `strikes_${formId}` only | Merge `globalStrikeKey` + scan |
 | 4 | Double-submit race | `app.js:488,950` | High | `requestSubmit` no guard | `isSubmitting` flag + fallback `dispatchEvent` |
@@ -31,7 +31,7 @@ tags: [frontend, audit, app-js, admin-js, results-js, a11y]
 | # | Title | File:Line | After |
 |---|-------|-----------|-------|
 | A1 | XSS `f.id` | `admin.js:116` | `esc(String(f.id))` + `encodeURIComponent` `href` |
-| A3 | URL injection | `admin.js:143` | `safeId = encodeURIComponent(id)` all fetches |
+| A3 | URL injection | `admin.js:136` | `safeId = encodeURIComponent(id)` all fetches |
 | B6 | `editingId` leak | `admin.js:222` | Still leaks — `closeBuilder` clears `editingId=null` needed (P1) |
 | B22 | Import DoS 50MB | `admin.js:457` | `file.size>200KB` + `qs.length>50` + length checks |
 | B26 | Delete race | `admin.js:190` | `act` returns `bool`, delete only if success |
@@ -53,14 +53,14 @@ tags: [frontend, audit, app-js, admin-js, results-js, a11y]
 | 1 | `rating/scale` not in `QUESTION_TYPES` | `server.js:79` vs `admin.js:321` | Admin maps to `radio` before POST, export leaks virtual type — debt |
 | 4 | ID `q1..qn` positional vs draft | `server.js:290` | Draft `draft_${id}` holds positional answers — debt |
 | 6 | Length caps only server | `server.js:80` | Import now checks but builder lacks `maxlength` live — debt |
-| 8 | Profanity scan text only vs all | `app.js:90` vs `server.js:133` | Now synced (both wildcard+collapsed) |
+| 8 | Profanity scan text only vs all | `app.js:36` vs `server.js:90` | Now synced (both wildcard+collapsed) |
 | 14 | `fetch` no timeout | `app.js:195` | Debt — needs `AbortSignal.timeout(8000)` |
 | 16 | Double submit | `app.js:950` | Fixed via `isSubmitting` |
 
 ## Remaining Low (P1/P2 debt from `todo.md`)
 - `page.wide` capped at 720 not 960 `style.css:527`
 - `iconoir.css` duplicate `admin.html:7,9`
-- `previewShell` `display:none` check brittle `admin.js:393`
+- `previewShell` `display:none` check brittle `admin.js:546`
 - `pagination` inline light style `results.html:65`
 - No virtualization for 1k forms
 

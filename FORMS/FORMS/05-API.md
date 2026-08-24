@@ -8,7 +8,7 @@ tags: [api, reference, curl, contract]
 
 ## Forms
 
-### `POST /api/forms` — create (IP-gated `requireAllowedIp` `server.js:58`)
+### `POST /api/forms` — create (IP-gated `requireAllowedIp` `server.js:69`)
 ```bash
 curl -X POST http://localhost:3000/api/forms \
   -H "Content-Type: application/json" \
@@ -43,7 +43,7 @@ curl http://localhost:3000/api/forms/1
 
 ## Responses
 
-### `POST /api/forms/:id/responses` — submit (rate `30/60s` per IP `server.js:178` + profanity `STRIKE_LIMIT 3` `server.js:174`)
+### `POST /api/forms/:id/responses` — submit (rate `30/60s` per IP `server.js:179` + profanity `STRIKE_LIMIT 3` `server.js:175`)
 ```bash
 curl -X POST http://localhost:3000/api/forms/1/responses \
   -H "Content-Type: application/json" \
@@ -56,7 +56,7 @@ curl -X POST http://localhost:3000/api/forms/1/responses \
 ```
 **Profanity:** `normalizeForProfanity` + `collapsed` + `tokenMatchesWithWildcard` catches `f u c k`, `f**k`, `f*ck`, zero-width. `Other: text` inner max `500` + total `2000`.
 
-### `GET /api/forms/:id/summary` — public aggregates (`limit 5000` `server.js:625`)
+### `GET /api/forms/:id/summary` — public aggregates (`limit 5000` `server.js:554`)
 ```bash
 curl http://localhost:3000/api/forms/1/summary
 # 200 {success:true, total: 253, summary:{
@@ -66,7 +66,7 @@ curl http://localhost:3000/api/forms/1/summary
 # }}
 ```
 
-### `GET /api/forms/:id/responses` — raw + text answers (IP-gated `server.js:474`, `limit 1000`)
+### `GET /api/forms/:id/responses` — raw + text answers (IP-gated `server.js:605`, `limit 1000`)
 ```bash
 curl http://localhost:3000/api/forms/1/responses
 # 200 {success:true, total: 1000, responses:[{id, form_id, answers, submitted_at}], summary:{... includeTextAnswers:true}}
@@ -94,7 +94,7 @@ curl -X DELETE http://localhost:3000/api/forms/1/responses
 ```
 
 ## Errors
-- `400 Invalid JSON.` (parse failed `server.js:680`)
+- `400 Invalid JSON.` (parse failed `server.js:734`)
 - `413 Payload too large.` (`express.json limit 25kb`)
 - `400 Validation failed.` + `errors[]`
 - `403 Access restricted.` / `blocked:true`

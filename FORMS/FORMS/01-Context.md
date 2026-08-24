@@ -10,6 +10,7 @@ aliases: [Context]
 - **Purpose:** Dynamic form builder + anonymous response collection + visual results. One-question-at-a-time (Typeform-style), monochrome Formly design, Iconoir icons — no emojis.
 - **Live repo:** https://github.com/Parithosh-Varma/formly
 - **Stack:** Node.js + Express `server.js:1`, Supabase Postgres `schema.sql:1`, Vanilla JS `public/app.js:1`, Telegram Bot API `server.js:359`
+- **Last updated:** 2026-08-24 (vault sync)
 
 ## Features
 - Builder at `/admin.html` — dropdown / radio / checkbox / text (+ Other), copy link, results, clear, delete
@@ -24,20 +25,21 @@ aliases: [Context]
 ## Repo Layout
 ```
 FORM/
-├─ server.js          # 749 lines, Express + Supabase, 7 routes
-├─ schema.sql         # 45→60 lines, forms + form_responses + RLS + CHECKs
+├─ server.js          # 748 lines, Express + Supabase, 7 routes
+├─ schema.sql         # 45 lines, forms + form_responses + RLS (CHECK constraints in app only)
 ├─ public/
-│  ├─ index.html      # 992 lines, survey shell + sticky-progress + blockedOverlay
-│  ├─ app.js          # 1181 lines, survey logic (was 789, now 1181)
-│  ├─ admin.html      # 90 lines, builder
-│  ├─ admin.js        # 564 lines, builder + drag + import/export
+│  ├─ index.html      # ~995 lines, survey shell + sticky-progress + blockedOverlay
+│  ├─ app.js          # 1186 lines, survey logic (was 789, now 1186)
+│  ├─ admin.html      # ~90 lines, builder
+│  ├─ admin.js        # 573 lines, builder + drag + import/export
 │  ├─ results.js      # 359 lines, charts + CSV
-│  ├─ results.html    # 83 lines
-│  └─ style.css       # 914 lines, :root + dark mode + toast + modal
+│  ├─ results.html    # ~83 lines
+│  └─ style.css       # 955 lines, :root + dark mode + toast + modal
 ├─ .env               # SUPABASE_URL=https://fcoupvxoniboruuqyksl.supabase.co
 ├─ .env.example       # 8 vars
 ├─ package.json       # express 4.19.2, supabase-js 2.45.0, ws 8.21.3
-├─ todo.md            # Gap to Success (P0/P1/P2) — see [[08-Roadmap]]
+├─ todo.md            # Gap to Success (P0/P1/P2 + Tech Debt + Design + Business) — see [[08-Roadmap]]
+├─ server.js.bak      # 577 lines, pre-harden snapshot
 └─ FORMS/FORMS/       # ← THIS VAULT
    ├─ .obsidian/
    ├─ Index.md
@@ -50,14 +52,14 @@ FORM/
 - Project `.env` is copy of vault section + `ALLOWED_IPS=122.171.17.98,127.0.0.1,::1` `TRUST_PROXY=0` `PORT=3000`
 
 ## Key Files with Line Refs
-- Forms CRUD: `server.js:248` `POST /api/forms` (IP-gated)
-- Responses: `server.js:286` `POST /api/forms/:id/responses` (profanity + rate)
-- Summary: `server.js:447` `GET /api/forms/:id/summary` (public aggregates, now `limit 5000`)
-- Raw: `server.js:474` `GET /api/forms/:id/responses` (IP-gated, `limit 1000`)
-- Admin: `server.js:503` `GET /api/admin/forms`
-- Delete: `server.js:522` `DELETE /api/forms/:id` + `539` `DELETE /responses`
-- Profanity: `server.js:77` `BAD_WORDS` + `normalizeForProfanity:95`
-- Rate: `server.js:178` `RATE_LIMIT_MAX 30/60s` + `ipStrikes:174`
+- Forms CRUD: `server.js:373` `POST /api/forms` (IP-gated)
+- Responses: `server.js:413` `POST /api/forms/:id/responses` (profanity + rate)
+- Summary: `server.js:554` `GET /api/forms/:id/summary` (public aggregates, `limit 5000`)
+- Raw: `server.js:605` `GET /api/forms/:id/responses` (IP-gated, `limit 1000`)
+- Admin: `server.js:667` `GET /api/admin/forms`
+- Delete: `server.js:686` `DELETE /api/forms/:id` + `703` `DELETE /responses`
+- Profanity: `server.js:90` `BAD_WORDS` + `normalizeForProfanity:106`
+- Rate: `server.js:179` `RATE_LIMIT_MAX 30/60s` + `ipStrikes:173`
 
 ## Links
 - [[02-Architecture]] — deep dive per file

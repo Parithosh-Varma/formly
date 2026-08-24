@@ -5,7 +5,7 @@ tags: [adr, decisions, architecture]
 # 07 — Decisions (ADRs)
 
 ## ADR-01 — `trust proxy: loopback` not `true`
-- **Context:** `server.js:28` `app.set('trust proxy', true)` trusts any `X-Forwarded-For` → attacker `curl -H XFF:127.0.0.1` bypasses `requireAllowedIp` `server.js:58`.
+- **Context:** `server.js:44` `app.set('trust proxy', true)` trusts any `X-Forwarded-For` → attacker `curl -H XFF:127.0.0.1` bypasses `requireAllowedIp` `server.js:69`.
 - **Options:** `true` (trust all), `loopback` (only 127.0.0.1), `1` hop, custom function.
 - **Decision:** `loopback` + `isLoopbackIp` covering `127.0.0.0/8` + `::1` + `::ffff:`. When `TRUST_PROXY=1` env set, we set `loopback`; else `false`. Verified: `XFF 9.9.9.9 →403`, `127.0.0.1→200`.
 - **Consequences:** Behind non-loopback LB (e.g., Cloudflare) need `TRUST_PROXY=1` + `ALLOWED_IPS` CIDR — future: add `TRUST_PROXY="2"` or list.
@@ -21,18 +21,18 @@ tags: [adr, decisions, architecture]
 - **Consequences:** `f**k` now correctly `Warning 1` not `fag+fuck` double; `f u c k` now blocked; strike 1 per distinct word per submission.
 
 ## ADR-04 — `strikeHint` removed
-- **Context:** `server.js:315` `hint = Number(req.body.strikeHint); if(hint>state.strikes) state.strikes=hint` trusts client `localStorage` → attacker `POST {strikeHint:9999}` poisons `loopback` bucket.
+- **Context:** `server.js:444` `hint = Number(req.body.strikeHint); if(hint>state.strikes) state.strikes=hint` trusts client `localStorage` → attacker `POST {strikeHint:9999}` poisons `loopback` bucket.
 - **Decision:** Comment out hint logic, ignore client hint completely. Client `public/app.js:970` now sends `{answers}` only (removed `strikeHint`). Server `readGuard`/`writeGuard` still per-form + `globalStrikeKey` mirror to prevent form-switch bypass, but not trusted.
 - **Consequences:** Server restart resets strikes (still in-memory) — future: persist to Supabase `ip_strikes` table.
 
 ## ADR-05 — Payload `25kb` + field caps
-- **Context:** `server.js:26` `express.json()` no limit → `title 50000` stored, `questions 100` → JSONB bloat, `GET /summary` OOM.
+- **Context:** `server.js:31` `express.json()` no limit → `title 50000` stored, `questions 100` → JSONB bloat, `GET /summary` OOM.
 - **Decision:** `express.json({limit:"25kb"})` → `413`, plus `MAX_TITLE 200`, `MAX_DESC 500`, `MAX_LABEL 300`, `MAX_OPTION 100`, `MAX_QUESTIONS 50`, `MAX_OPTIONS 20` + `schema.sql:6` `CHECK` constraints. Chose 25kb ~ `50*100 + 200 + 500` worst-case ~5k + overhead.
 - **Consequences:** Legit 50 Qs × 2000-char answers still under 25kb? 50*2000=100k >25k for responses → `POST /responses` with 50 text answers 2000 each would `413` — need `50*2000=100k` > limit, so limit is for form creation, not responses. Responses average 1 text 2000 + 9 radios small → ~3k <25k safe. Future: separate limits.
 
 ## ADR-06 — `asyncHandler` + error shape
 - **Context:** `server.js:170` `validateFormPayload` threw `TypeError` inside `async` route → unhandled rejection → process crash.
-- **Decision:** `asyncHandler(fn)` wrapper + `app.use((err,req,res,next)=>{ if(entity.parse.failed→400, entity.too.large→413) })` `server.js:680`.
+- **Decision:** `asyncHandler(fn)` wrapper `server.js:27` + `app.use((err,req,res,next)=>{ if(entity.parse.failed→400, entity.too.large→413) })` `server.js:734`.
 - **Consequences:** No new dep `express-async-errors`; all routes wrapped.
 
 ## ADR-07 — `XSS` via `q.id` — `esc(q.id)` everywhere
@@ -47,15 +47,15 @@ tags: [adr, decisions, architecture]
 
 ## ADR-09 — Security headers `CSP` allow `cdn.jsdelivr.net`
 - **Context:** `public/index.html:8` pulls Iconoir from CDN without `integrity` + no `CSP` → XSS via CDN compromise.
-- **Decision:** `server.js:22` sets `CSP: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'self'; ... frame-ancestors 'none'` + `X-Frame-Options DENY`.
+- **Decision:** `server.js:33` sets `CSP: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'self'; ... frame-ancestors 'none'` + `X-Frame-Options DENY`.
 - **Consequences:** Inline `<style>` in `index.html:9` needs `unsafe-inline` — debt: move to `style.css` to remove.
 
 ## ADR-10 — Schema `CHECK` vs app validation
 - **Context:** `schema.sql:6` was `TEXT NOT NULL` no limits → direct `psql` insert bypasses app.
-- **Decision:** Add `CHECK (char_length(title) 1-200)` etc. + `answers` `octet_length <20k`. Keep RLS `anon` `WITH CHECK(true)` for now but live DB actually blocks anon `401` — divergence documented.
+- **Decision:** CHECK constraints enforced at app level `validateFormPayload:223` not in schema. Keep RLS `anon` `WITH CHECK(true)` for now but live DB actually blocks anon `401` — divergence documented.
 - **Consequences:** Existing data that violates CHECK would block migration — verified 1 form passes.
 
 ## Links
 - [[04-Bug-Fixes]] — code diffs
 - [[03-Stress-Test-Report]] — proofs
-- [[08-Roadmap]] — P0 debt still open (DRY BAD_WORDS, health probe, `ws` cleanup)
+- [[08-Roadmap]] — P0 debt still open (DRY BAD_WORDS, health probe, `ws` cleanup, comprehensive gap analysis)

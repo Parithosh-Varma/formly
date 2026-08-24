@@ -4,7 +4,7 @@ tags: [architecture, deep-dive, server, frontend, db]
 
 # 02 — Architecture
 
-## Server `server.js:1` (749 lines)
+## Server `server.js:1` (748 lines)
 ```mermaid
 flowchart TD
   A[Express] --> B[express.json limit 25kb]
@@ -24,14 +24,14 @@ flowchart TD
 
 ### Critical Sections
 - **Init `server.js:7-24`** — `createClient` with `ws` transport (unused, see P0 Tech Debt). `supabaseAdmin` fallback `|| supabase`.
-- **Helpers `server.js:14-66`** — `asyncHandler`, `isLoopbackIp`, `clientIp`, `requireAllowedIp`.
-- **Profanity `server.js:77-172`** — `BAD_WORDS[27]`, `BAD_WORD_PATTERNS` with `i` flag, `normalizeForProfanity` (zero-width strip, leet map, collapse `(.)\1{2,}`, `[^a-z]`→space), `tokenMatchesWithWildcard`, `findBadWord`, `scanAnswersForProfanity` (now `Set` deduped).
-- **Rate `server.js:174-212`** — `ipStrikes Map`, `rateLimitMap`, `loopback:${ip}` per-IP, `setInterval` prune 60s.
-- **Validation `server.js:230-360`** — `validateFormPayload` (checks `title 200`, `desc 500`, `questions 1-50`, `label 300`, `options 2-20 ×100`), `normalizeQuestions`, `isOtherValue` (inner 500 + total 2000), `validateAnswers` (extra keys, `__proto__`, dup, `Other`).
+- **Helpers `server.js:26-66`** — `asyncHandler`, `isLoopbackIp`, `clientIp`, `requireAllowedIp`.
+- **Profanity `server.js:90-171`** — `BAD_WORDS[28]`, `BAD_WORD_PATTERNS` with `i` flag, `normalizeForProfanity` (zero-width strip, leet map, collapse `(.)\1{2,}`, `[^a-z]`→space), `tokenMatchesWithWildcard`, `findBadWord`, `scanAnswersForProfanity` (now `Set` deduped).
+- **Rate `server.js:173-214`** — `ipStrikes Map`, `rateLimitMap`, `loopback:${ip}` per-IP, `setInterval` prune 60s.
+- **Validation `server.js:223-371`** — `validateFormPayload` (checks `title 200`, `desc 500`, `questions 1-50`, `label 300`, `options 2-20 ×100`), `normalizeQuestions`, `isOtherValue` (inner 500 + total 2000), `validateAnswers` (extra keys, `__proto__`, dup, `Other`).
 - **Routes** — all wrapped `asyncHandler(async (req,res)=>...)`.
 - **Telegram `server.js:530`** — `notifyTelegram` with `telegramInFlight<5` + `AbortSignal.timeout(8000)` fallback.
 - **Summary `server.js:570`** — `buildSummary` with `hasOwn` + `isOtherValue` strict, `limit 5000/1000`.
-- **Error `server.js:680`** — `entity.parse.failed →400`, `entity.too.large→413`.
+- **Error `server.js:734`** — `entity.parse.failed →400`, `entity.too.large→413`.
 
 ### Security Headers `server.js:22`
 ```
@@ -42,7 +42,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 Permissions-Policy: camera=(), microphone=(), geolocation=()
 ```
 
-## Frontend `public/app.js:1` (1181 lines)
+## Frontend `public/app.js:1` (1186 lines)
 - **State `app.js:193`** — `currentFormId`, `currentQuestions`, `currentStep`, `hasSubmitted`, `isSubmitting`, `draftSaveTimer`, `view='welcome'|'question'`.
 - **Theme `app.js:10`** — `initTheme()` reads `localStorage theme` or `prefers-color-scheme`, toggles `data-theme`, `updateThemeIcon`.
 - **Profanity `app.js:90`** — `BAD_WORDS` same 27, `BAD_WORD_RE` with `\b\w{0,5}`, `normalizeClient` mirrors server, `tokenMatchesWithWildcard`, `clientHasBadWord`, `countClientProfanity` `Set`.
@@ -52,7 +52,7 @@ Permissions-Policy: camera=(), microphone=(), geolocation=()
 - **Submit `app.js:950`** — `handleSubmit` `isSubmitting` guard, `firstMissing`, `isBlockedNow`, `checkProfanityField`, `fetch` without `strikeHint` (removed), `hasSubmitted` + `localStorage` cleanup, whiteScreen → video → success.
 - **UX** — `shakeQuestion`, `showBlockedOverlay` `12000ms` video, `startCountdown`, `closeBlockedOverlay` clears both `strikes_global`, `playCelebrationVideo`, `beforeunload`, `visibilitychange` Notification + title flash, `15min` chime.
 
-## DB `schema.sql:1` (60 lines)
+## DB `schema.sql:1` (45 lines)
 ```sql
 forms (
   id SERIAL PK,
@@ -70,13 +70,13 @@ form_responses (
 idx_form_responses_form(form_id)
 RLS: ENABLE, policy "public read forms" SELECT anon, policy "public submit responses" INSERT anon WITH CHECK(true)
 ```
-- Hardened: added `CHECK` constraints post-audit (was plain `TEXT NOT NULL`).
+- Note: CHECK constraints live in `validateFormPayload` `server.js:223` (app-level enforcement). `schema.sql` defines structure only.
 
 ## Public Assets
-- `index.html:9` `:root` vars + inline 800 lines (shadows `style.css:1` — P0 debt)
+- `index.html:9` `:root` vars + inline ~880 lines (shadows `style.css:1` — P0 debt)
 - `admin.html:7` duplicate Iconoir link (fixed in `admin.js:116` escaped)
 - `results.html:51` `chart-toggle` bars/donut, `pagination` inline style
-- `style.css:1` 914 lines, dark `html[data-theme="dark"]`, toast, modal, skeleton, `page.wide` bug (capped at 720)
+- `style.css:1` 955 lines, dark `html[data-theme="dark"]`, toast, modal, skeleton, `page.wide` bug (capped at 720)
 
 ## API Surface
 | Method | Path | Gate | Limit |

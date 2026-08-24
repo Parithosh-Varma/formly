@@ -19,22 +19,22 @@ aliases: [Stress Report]
 ## Findings Summary (deduplicated)
 | # | Title | File:Line | Severity | Live Proof |
 |---|-------|-----------|----------|------------|
-| 1 | IP bypass `X-Forwarded-For: 127.0.0.1` when `TRUST_PROXY=1` | `server.js:28,37-50` | Critical | `curl -H XFF:127.0.0.1 /api/admin/forms →200` (vs `9.9.9.9→403`) |
-| 2 | Loopback open when behind nginx | `server.js:45` | Critical | All remote → `127.0.0.1` → `200` |
+| 1 | IP bypass `X-Forwarded-For: 127.0.0.1` when `TRUST_PROXY=1` | `server.js:44,55-76` | Critical | `curl -H XFF:127.0.0.1 /api/admin/forms →200` (vs `9.9.9.9→403`) |
+| 2 | Loopback open when behind nginx | `server.js:55` | Critical | All remote → `127.0.0.1` → `200` |
 | 3 | Crash `description={}` | `server.js:256` | Critical | `POST {"description":{}}` → `Empty reply` + `TypeError trim` `server.js:256:49` |
-| 4 | Crash `questions:[null]` | `server.js:170` | Critical | `POST [null]` → `TypeError label` `170:18` |
-| 5 | Crash `summary` null deref | `server.js:461` | Critical | Unset `SERVICE_ROLE_KEY` → `GET /summary` → `TypeError from` |
-| 6 | No `title` length limit | `server.js:163` | High | `POST title 5000→201` (now `400`) |
-| 7 | `questions` unbounded | `server.js:165` | High | `POST 100 Qs →201` (now `400`) |
+| 4 | Crash `questions:[null]` | `server.js:240` | Critical | `POST [null]` → `TypeError label` `244:18` |
+| 5 | Crash `summary` null deref | `server.js:554` | Critical | Unset `SERVICE_ROLE_KEY` → `GET /summary` → `TypeError from` |
+| 6 | No `title` length limit | `server.js:228` | High | `POST title 5000→201` (now `400`) |
+| 7 | `questions` unbounded | `server.js:237` | High | `POST 100 Qs →201` (now `400`) |
 | 8 | Trim dedup mismatch `[" hello","hello"]` | `server.js:177 vs 202` | High | `POST →201` stored `["hello"]` 1-option violates ≥2 |
-| 9 | Extra keys `q999` stored | `server.js:214` | High | `POST answers+extra →201` `id=230` |
-| 10 | Checkbox dup `["A","A","A"]` vote stuffing | `server.js:233` | Medium | `POST dup →201` `id=231` |
-| 11 | Profanity `f u c k` bypass | `server.js:74` | High | `POST "f u c k you" →201` `id=232` |
-| 12 | Profanity `f**k` bypass | `server.js:92` | High | `POST "f**k" →201` `id=233` |
-| 13 | `Other` 1800 vs 500 | `server.js:208` | Medium | `Other: x*1800 →201` (now `400`) |
-| 14 | `strikeHint` poisoning | `server.js:315` | High | `POST strikeHint 9999 →201` set `strikes=9999` |
-| 15 | Rate 429 after 30 | `server.js:132` | Medium | Clean burst `30×201 +5×429` (after restart) |
-| 16 | Unbounded fetch OOM | `server.js:460,487` | Critical | `GET /summary` loads all `5000` rows |
+| 9 | Extra keys `q999` stored | `server.js:318` | High | `POST answers+extra →201` `id=230` |
+| 10 | Checkbox dup `["A","A","A"]` vote stuffing | `server.js:357` | Medium | `POST dup →201` `id=231` |
+| 11 | Profanity `f u c k` bypass | `server.js:90` | High | `POST "f u c k you" →201` `id=232` |
+| 12 | Profanity `f**k` bypass | `server.js:124` | High | `POST "f**k" →201` `id=233` |
+| 13 | `Other` 1800 vs 500 | `server.js:304` | Medium | `Other: x*1800 →201` (now `400`) |
+| 14 | `strikeHint` poisoning | `server.js:444` | High | `POST strikeHint 9999 →201` set `strikes=9999` |
+| 15 | Rate 429 after 30 | `server.js:179` | Medium | Clean burst `30×201 +5×429` (after restart) |
+| 16 | Unbounded fetch OOM | `server.js:554,605` | Critical | `GET /summary` loads all `5000` rows |
 | 17 | `ws` unused | `server.js:5` | Low | `createClient realtime transport` never `channel` |
 | 18 | Direct anon RLS | `schema.sql:39` vs live | Medium | `fetch anon` `POST /rest/v1/form_responses` → `401 42501` (live blocks, schema allows) |
 
@@ -49,10 +49,10 @@ GET /api/admin/forms XFF 127.0.0.1 →200  XFF 9.9.9.9 →403  (TRUST_PROXY=1)
 ```
 
 ## Frontend Findings (highlights, see [[06-Frontend-Audit]])
-- `draftDismissKey is not defined` `app.js:273` Critical
+- `draftDismissKey is not defined` `app.js:281` Critical
 - XSS `q.id` not escaped `app.js:563` Critical
 - Block bypass per-form `app.js:820` Critical
-- Double-submit `app.js:495,950` High
+- Double-submit `app.js:488,950` High
 - Dead `questionGrid` `app.js:518` High
 - `requestSubmit` no fallback `app.js:495` High
 
@@ -71,3 +71,5 @@ GET /api/admin/forms XFF 127.0.0.1 →200  XFF 9.9.9.9 →403  (TRUST_PROXY=1)
 - Headers `X-Frame-Options DENY` `CSP` present ✅
 
 See [[04-Bug-Fixes]] for one-by-one diffs.
+
+*Last verified: 2026-08-24*

@@ -31,12 +31,12 @@ aliases: [Bugs Tracker]
 - [ ] `custom select leak` 10× `document` listeners `app.js:657` — debt P1
 
 ## 🟡 Medium — P1
-- [x] Rate 429 after 30 `server.js:178` verified clean burst `30+5`
-- [x] `X-Frame-Options DENY` `CSP` `server.js:22`
+- [x] Rate 429 after 30 `server.js:179` verified clean burst `30+5`
+- [x] `X-Frame-Options DENY` `CSP` `server.js:33`
 - [x] `ws` unused `server.js:5` — still imported (debt)
 - [ ] `page.wide` capped at 720 not 960 `style.css:527` — `width:min(720px)` vs `max-width:960px`
 - [ ] `iconoir.css` duplicate `admin.html:7,9`
-- [ ] `previewShell` `display==="none"` brittle `admin.js:393`
+- [ ] `previewShell` `display==="none"` brittle `admin.js:546`
 - [ ] Donut >100% for checkbox `results.js:275`
 - [ ] CSV injection `=cmd` `results.js:307`
 - [ ] `statLast` oldest not latest `results.js:99`
@@ -58,6 +58,6 @@ WHERE !completed
 SORT severity DESC
 ```
 
-See [[04-Bug-Fixes]] for diffs, [[03-Stress-Test-Report]] for proofs, [[08-Roadmap]] for P0 debt.
+See [[04-Bug-Fixes]] for diffs, [[03-Stress-Test-Report]] for proofs, [[08-Roadmap]] for P0 debt including comprehensive gap analysis from `todo.md`.
 
-*Vault: `FORMS/FORMS/.obsidian/workspace.json` — Graph shows `Bugs.md ↔ Index.md ↔ 04-Bug-Fixes.md`.*
+*Vault: `FORMS/FORMS/.obsidian/workspace.json` — Graph shows `Bugs.md ↔ Index.md ↔ 04-Bug-Fixes.md`. Updated 2026-08-24.*

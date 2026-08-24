@@ -8,7 +8,7 @@ aliases: [Fixes]
 > Each bug: `file:line` before → fix diff → verification. Order = fix sequence 2026-08-23.
 
 ## Batch 1 — Crash DoS `server.js:26,169,256,461`
-**Fix:** `asyncHandler` `server.js:14` + `express.json limit 25kb` `server.js:22` + `isLoopbackIp` + `getDescription()` + `validateFormPayload` null guard.
+**Fix:** `asyncHandler` `server.js:27` + `express.json limit 25kb` `server.js:31` + `isLoopbackIp` + `getDescription()` + `validateFormPayload` null guard.
 ```js
 // before
 app.use(express.json());
@@ -45,7 +45,7 @@ if(o.length>100) ...
 - Other: `isOtherValue` `server.js:304` now `inner.length>500 false` + `val.length>2000 false`, `buildSummary:590` strict `hasOwn` + `isOtherValue`
 **Verify:** `POST [" hello","hello"] →400`, `POST extra q999 →400`, `POST ["A","A"] →400`, `Other: x*600 →400`.
 
-## Batch 4 — Profanity `server.js:90-172`
+## Batch 4 — Profanity `server.js:90-171`
 ```js
 BAD_WORD_PATTERNS = BAD_WORDS.map(w=>({regex:new RegExp(`\\b${w}\\w{0,5}\\b`,"i")}))
 normalizeForProfanity: +zero-width strip + (.)\1{2,} collapse + trim
@@ -54,7 +54,7 @@ scanAnswersForProfanity: normalized+collapsed test + tokens split /[^a-z*]+/ + S
 ```
 **Verify:** `f u c k` collapsed `fuck` → `400` (was 201), `f**k` token `f**k` length4 matches `fuck` → `400` (was 201, previous false `fag` fixed), zero-width `f\u200Buck` → `400`.
 
-## Batch 5 — IP/Rate `server.js:22,182,320`
+## Batch 5 — IP/Rate `server.js:31,181,320`
 ```js
 if(TRUST_PROXY==="1") app.set("trust proxy","loopback"); else false;
 function isLoopbackIp(ip){ if(ip==="::1"||"127.0.0.1"||ip.startsWith("127.")) true }
@@ -73,7 +73,7 @@ POST /responses: checkRateLimit BEFORE validateAnswers; removed strikeHint trust
 - `app.js:436` `backBtn` `showStep`, `app.js:764` `updateCharCounter` `otherKey` fallback
 - `admin.js:116` `esc(String(f.id))` + `encodeURIComponent`, `admin.js:136` `safeId`, export `appendChild` + `setTimeout revoke` + sanitize, `act` returns `bool`, delete only if success, import `file.size>200KB` + length checks
 
-## Batch 7 — Security `server.js:22` `schema.sql:6`
+## Batch 7 — Security `server.js:33` `schema.sql:6`
 ```js
 app.use((req,res,next)=>{ res.setHeader("X-Content-Type-Options","nosniff"); X-Frame-Options DENY; CSP default-src 'self' ...; next(); })
 schema.sql: CHECK char_length + jsonb_array_length + octet_length
